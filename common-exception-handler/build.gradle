@@ -1,0 +1,57 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.5.7'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'az.abb.loan'
+version = '0.0.1-SNAPSHOT'
+description = 'common-exception-handler'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot'
+
+    implementation 'org.springframework:spring-web'
+
+    implementation "io.github.openfeign:feign-okhttp:13.0"
+
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+
+    implementation 'org.springframework:spring-web'
+
+
+    implementation 'org.springframework:spring-context'
+
+    compileOnly "jakarta.servlet:jakarta.servlet-api"
+
+    implementation "jakarta.validation:jakarta.validation-api"
+
+    annotationProcessor "org.springframework.boot:spring-boot-configuration-processor"
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.0'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+bootJar {
+    enabled = false
+}
+
+jar {
+    archiveBaseName.set('common-exception-handling')
+    archiveVersion.set('1.0.0')
+    archiveClassifier.set('')
+    enabled = true
+}
