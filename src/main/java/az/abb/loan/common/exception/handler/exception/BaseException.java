@@ -10,7 +10,7 @@ public abstract class BaseException extends RuntimeException {
     private final String detail;
     private final Object[] args;
 
-    protected BaseException(ErrorCode errorCode, HttpStatus status, String detail, Object... args) {
+    protected BaseException(ErrorCode errorCode, HttpStatus status, String detail, Object[] args) {
         super(errorCode.messageKey());
         this.errorCode = errorCode;
         this.status = status;

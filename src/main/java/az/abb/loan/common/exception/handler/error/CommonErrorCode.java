@@ -76,6 +76,6 @@ public enum CommonErrorCode implements ErrorCode {
 
     @Override
     public BaseException exceptionWithMessage(HttpStatus status, String message) {
-        return new BadRequestException(this, status, message);
+        return new BadRequestException(this, status, null);
     }
 }
