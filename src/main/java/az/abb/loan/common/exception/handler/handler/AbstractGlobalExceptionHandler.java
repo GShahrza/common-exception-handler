@@ -46,7 +46,8 @@ public abstract class AbstractGlobalExceptionHandler {
                 request.getHeader(TraceHeaders.X_TRACE_ID),
                 request.getHeader(TraceHeaders.X_B3_SPAN_ID)
         );
-        return traceId != null ? URI.create("trace:" + traceId) : URI.create(request.getRequestURI());
+        return traceId != null
+                ? URI.create("trace:" + traceId) : URI.create(request.getRequestURI());
     }
 
     private String firstNonNull(String... values) {
