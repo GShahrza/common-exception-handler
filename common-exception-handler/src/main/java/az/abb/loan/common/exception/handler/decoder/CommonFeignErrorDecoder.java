@@ -2,19 +2,28 @@ package az.abb.loan.common.exception.handler.decoder;
 
 import az.abb.loan.common.exception.handler.error.CommonErrorCode;
 import az.abb.loan.common.exception.handler.exception.BaseException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import az.abb.loan.common.exception.handler.support.ProblemDetailParser;
 import feign.Response;
 import feign.codec.ErrorDecoder;
+import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ProblemDetail;
-import org.springframework.util.StreamUtils;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
+/**
+ * Converts error responses of downstream services called via Feign into {@code CLIENT_ERROR} exceptions,
+ * keeping the downstream HTTP status and its Problem Details message.
+ */
 public class CommonFeignErrorDecoder implements ErrorDecoder {
 
+    private static final int MAX_BODY_BYTES = 64 * 1024;
+
     private final ObjectMapper objectMapper;
-    private final ErrorDecoder defaultDecoder = new Default();
+
+    public CommonFeignErrorDecoder() {
+        this(JsonMapper.builder().build());
+    }
 
     public CommonFeignErrorDecoder(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
@@ -22,47 +31,32 @@ public class CommonFeignErrorDecoder implements ErrorDecoder {
 
     @Override
     public Exception decode(String methodKey, Response response) {
-
         HttpStatus status = HttpStatus.resolve(response.status());
         if (status == null) {
-            status = HttpStatus.INTERNAL_SERVER_ERROR;
+            status = HttpStatus.BAD_GATEWAY;
         }
-
-        if (response.body() != null) {
-            try (InputStream is = response.body().asInputStream()) {
-
-                String body = StreamUtils.copyToString(is, StandardCharsets.UTF_8);
-
-                if (isProblemDetail(body)) {
-                    return mapProblemDetail(body, status);
-                }
-
-                return CommonErrorCode.CLIENT_ERROR
-                        .exceptionWithMessage(status, response.reason());
-
-            } catch (Exception e) {
-                return CommonErrorCode.CLIENT_ERROR.exception();
-            }
+        ProblemDetailParser.DownstreamError error = ProblemDetailParser.parse(objectMapper, readBody(response));
+        String message = error.message();
+        if (message == null) {
+            message = response.reason() != null
+                    ? response.reason()
+                    : "Downstream call " + methodKey + " failed with status " + response.status();
         }
-
-        return CommonErrorCode.CLIENT_ERROR
-                .exceptionWithMessage(status, "Feign client error: " + response.reason());
+        BaseException ex = CommonErrorCode.CLIENT_ERROR.exceptionWithMessage(status, message);
+        if (error.key() != null) {
+            ex.withProperty("downstreamKey", error.key());
+        }
+        return ex;
     }
 
-    protected boolean isProblemDetail(String body) {
-        return body.contains("\"type\"")
-                && body.contains("\"title\"")
-                && body.contains("\"status\"");
-    }
-
-    protected BaseException mapProblemDetail(String body, HttpStatus status) throws Exception {
-        ProblemDetail pd = objectMapper.readValue(body, ProblemDetail.class);
-
-        return CommonErrorCode.CLIENT_ERROR
-                .exceptionWithMessage(
-                        status,
-                        pd.getDetail() != null ? pd.getDetail() : pd.getTitle()
-                );
+    private static byte[] readBody(Response response) {
+        if (response.body() == null) {
+            return null;
+        }
+        try (InputStream is = response.body().asInputStream()) {
+            return is.readNBytes(MAX_BODY_BYTES);
+        } catch (IOException e) {
+            return null;
+        }
     }
 }
-

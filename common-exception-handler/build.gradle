@@ -1,57 +1,106 @@
 plugins {
-    id 'java'
-    id 'org.springframework.boot' version '3.5.7'
+    id 'java-library'
+    id 'maven-publish'
     id 'io.spring.dependency-management' version '1.1.7'
 }
 
 group = 'az.abb.loan'
-version = '0.0.1-SNAPSHOT'
-description = 'common-exception-handler'
+// Release builds pass -PreleaseVersion=2.0.0 (done by the release workflow from the git tag)
+version = findProperty('releaseVersion') ?: '2.0.0-SNAPSHOT'
+description = 'Common RFC 9457 (Problem Details) exception handling for Spring Boot services'
 
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
     }
+    withSourcesJar()
 }
 
 repositories {
     mavenCentral()
 }
 
+dependencyManagement {
+    imports {
+        // Compile against the lowest supported Boot version; CI also tests newer ones with -PbootVersion=...
+        mavenBom "org.springframework.boot:spring-boot-dependencies:${findProperty('bootVersion') ?: '4.0.8'}"
+    }
+    // The BOM is only for building this library; do not push it into consumers' POMs
+    generatedPomCustomization {
+        enabled = false
+    }
+}
+
 dependencies {
-    implementation 'org.springframework.boot:spring-boot'
+    // Part of the public API (HttpStatus, ProblemDetail in method signatures)
+    api 'org.springframework:spring-web'
 
-    implementation 'org.springframework:spring-web'
+    implementation 'org.springframework.boot:spring-boot-autoconfigure'
+    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
 
-    implementation "io.github.openfeign:feign-okhttp:13.0"
+    // Provided by the consuming web application
+    compileOnly 'org.springframework:spring-webmvc'
+    compileOnly 'jakarta.servlet:jakarta.servlet-api'
+    compileOnly 'jakarta.validation:jakarta.validation-api'
+    compileOnly 'org.slf4j:slf4j-api'
 
-    implementation 'com.fasterxml.jackson.core:jackson-databind'
+    // Optional integrations: only active when present on the consumer's classpath
+    compileOnly 'tools.jackson.core:jackson-databind'
+    compileOnly 'io.github.openfeign:feign-core:13.6'
 
-    implementation 'org.springframework:spring-web'
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc'
+    testImplementation 'org.springframework.boot:spring-boot-starter-validation'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+    testImplementation 'io.github.openfeign:feign-core:13.6'
+    testImplementation 'org.springframework:spring-tx'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
 
-
-    implementation 'org.springframework:spring-context'
-
-    compileOnly "jakarta.servlet:jakarta.servlet-api"
-
-    implementation "jakarta.validation:jakarta.validation-api"
-
-    annotationProcessor "org.springframework.boot:spring-boot-configuration-processor"
-
-    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.0'
+// Keep method parameter names (needed for @PathVariable/@RequestParam without explicit names
+// and for parameter names in validation errors). The Spring Boot plugin does this for applications.
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs << '-parameters'
 }
 
 tasks.named('test') {
     useJUnitPlatform()
 }
 
-bootJar {
-    enabled = false
+base {
+    archivesName = 'common-exception-handling'
 }
 
-jar {
-    archiveBaseName.set('common-exception-handling')
-    archiveVersion.set('1.0.0')
-    archiveClassifier.set('')
-    enabled = true
+publishing {
+    publications {
+        library(MavenPublication) {
+            from components.java
+            artifactId = 'common-exception-handling'
+            // Write resolved versions into the POM / Gradle module metadata; the dependency-management
+            // plugin alone would publish dependencies without versions
+            versionMapping {
+                usage('java-api') {
+                    fromResolutionOf('runtimeClasspath')
+                }
+                usage('java-runtime') {
+                    fromResolutionResult()
+                }
+            }
+            pom {
+                name = 'Common Exception Handler'
+                description = project.description
+                url = 'https://github.com/GShahrza/common-exception-handler'
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = 'GitHubPackages'
+            url = uri(findProperty('publishUrl') ?: 'https://maven.pkg.github.com/GShahrza/common-exception-handler')
+            credentials {
+                username = findProperty('publishUser') ?: System.getenv('GITHUB_ACTOR')
+                password = findProperty('publishPassword') ?: System.getenv('GITHUB_TOKEN')
+            }
+        }
+    }
 }
