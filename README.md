@@ -239,8 +239,8 @@ RestClient loanClient(RestClient.Builder builder, JsonMapper jsonMapper) {
 
 ## Releasing a new version
 1. Merge the changes into `main` (CI builds and tests against Spring Boot 4.0 and 4.1).
-2. Create and push a tag with the version: `git tag v2.0.1 && git push origin v2.0.1`.
-3. The `release` workflow builds, tests and publishes `az.abb.loan:common-exception-handling:2.0.1`.
+2. Either push a tag with the version (`git tag v2.0.1 && git push origin v2.0.1`), or open **Actions → release → Run workflow** on `main` and enter `2.0.1`.
+3. The `release` workflow builds, tests and publishes `az.abb.loan:common-exception-handling:2.0.1`. On manual runs it also creates the `v2.0.1` tag after a successful publish.
 
 Local builds use version `2.0.0-SNAPSHOT`; `./gradlew publishToMavenLocal -PreleaseVersion=2.0.1` installs a version into `~/.m2` for local testing. To publish to another Maven repository (e.g. Nexus), pass `-PpublishUrl=... -PpublishUser=... -PpublishPassword=...`.
 

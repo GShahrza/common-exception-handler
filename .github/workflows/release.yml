@@ -1,13 +1,24 @@
 name: release
 
-# Push a tag like v2.0.0 to build, test and publish that version to GitHub Packages
+# Publishes the library to GitHub Packages, either
+#  - by pushing a tag like v2.0.0, or
+#  - manually: Actions -> release -> "Run workflow" with a version like 2.0.0
+#    (the workflow then creates the v<version> tag itself after a successful publish)
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. 2.0.0'
+        required: true
 
 permissions:
-  contents: read
+  contents: write   # create the release tag on manual runs
   packages: write
+
+concurrency:
+  group: release
 
 jobs:
   publish:
@@ -17,12 +28,45 @@ jobs:
         working-directory: common-exception-handler
     steps:
       - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+              echo "::error::Manual releases must run on main (got $GITHUB_REF)"; exit 1
+            fi
+            VERSION="$INPUT_VERSION"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version must look like 2.0.0 (got '$VERSION')"; exit 1
+          fi
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] && git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null; then
+            echo "::error::Tag v$VERSION already exists"; exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
+
       - name: Build and publish
-        run: ./gradlew build publish -PreleaseVersion=${GITHUB_REF_NAME#v}
+        run: ./gradlew build publish -PreleaseVersion=${{ steps.version.outputs.version }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag the release (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$VERSION" -m "Release $VERSION"
+          git push origin "v$VERSION"
