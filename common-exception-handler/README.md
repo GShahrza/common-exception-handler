@@ -34,7 +34,8 @@ A small, reusable library for centralized exception handling across Spring Boot 
 - **AbstractGlobalExceptionHandler:** extends Spring's `ResponseEntityExceptionHandler`, so every Spring MVC exception gets its correct status, and converts everything into the common `ProblemDetail` format.
 - **Localization:** texts are taken from your service's `MessageSource` first and fall back to the translations bundled with the library. You only define keys you want to override.
 - **Service key:** every payload has `key` = `service-key + code` (e.g. `ABLIMS1000`).
-- **Logging:** unexpected errors and 5xx `BaseException`s are logged with stack trace; the response never exposes internal exception messages.
+- **Logging:** unexpected errors and 5xx errors are logged with stack trace; the response never exposes internal exception messages.
+- **Database and security errors:** `DataIntegrityViolationException` → 409 (`2001`), optimistic lock → 409 (`2002`), pessimistic lock → 423 (`2003`), Spring Security access denied → 403, authentication → 401. Detected by class name, so no extra dependency is required. SQL details are logged, never returned.
 - **Auto-configuration:** `ErrorProperties` and the Feign error decoder are registered automatically.
 
 ## Tech Stack
@@ -119,6 +120,9 @@ throw CommonErrorCode.INTERNAL_ERROR.exceptionWithMessage("Unexpected issue duri
 
 // explicit status
 throw CommonErrorCode.DATA_INTEGRITY_VIOLATION.exception(HttpStatus.UNPROCESSABLE_CONTENT);
+
+// extra fields in the response: {..., "maxAmount": 5000}
+throw CommonErrorCode.BAD_REQUEST.exception().withProperty("maxAmount", 5000);
 ```
 
 To customize the response, override the protected methods of `AbstractGlobalExceptionHandler`, e.g. `createProblemDetail`, `errorCodeFor` or `resolveLocale`.
@@ -158,11 +162,16 @@ Unknown URL (`GET /insurance-ms/nope`):
 }
 ```
 
-If a trace header (`traceparent`, `X-B3-TraceId`, `X-Trace-Id`) is present, `instance` is `trace:<id>`.
+If a trace header (`traceparent`, `X-B3-TraceId`, `X-Trace-Id`) is present, or Micrometer Tracing has put a `traceId` into the logging MDC, `instance` is `trace:<id>`.
 
 ## Service-to-service errors (Feign / RestClient)
 
-**Feign:** when OpenFeign and Jackson 3 are on the classpath, `CommonFeignErrorDecoder` is registered automatically as the default `ErrorDecoder` (unless you define your own). A downstream error becomes `CLIENT_ERROR` (code `4000`) with the **downstream HTTP status** and the downstream Problem Details `detail`.
+**Feign:** when OpenFeign and Jackson 3 are on the classpath, `CommonFeignErrorDecoder` is registered automatically as the default `ErrorDecoder` (unless you define your own). A downstream error becomes `CLIENT_ERROR` (code `4000`) with the **downstream HTTP status** and the downstream Problem Details `detail`. The downstream error key is kept as `downstreamKey`:
+
+```json
+{ "status": 404, "title": "Client Error", "detail": "Policy for loan 7 not found",
+  "key": "LOAN4000", "downstreamKey": "INS3001", "...": "..." }
+```
 
 **RestClient / HTTP interface clients** (recommended for new code in Spring Boot 4):
 
@@ -207,7 +216,7 @@ RestClient loanClient(RestClient.Builder builder, JsonMapper jsonMapper) {
 
 ## Migrating from 1.x (Spring Boot 3)
 
-- Requires Spring Boot 4 / Spring Framework 7 and Jackson 3 (`tools.jackson`).
+- Requires Spring Boot 4.0+ / Spring Framework 7 and Jackson 3 (`tools.jackson`). Tested with Boot 4.0.8 and 4.1.1.
 - `CommonFeignErrorDecoder` now takes a Jackson 3 `tools.jackson.databind.ObjectMapper` (or use the no-arg constructor). It is registered automatically; remove manual registration unless you need a custom one.
 - `CommonErrorCode.exception()` now uses the code's own status (e.g. `RESOURCE_NOT_FOUND` → 404 instead of 400). Pass a status explicitly to keep the old behaviour.
 - `CLIENT_ERROR` now uses i18n keys `error.client.title` / `error.client.message`.

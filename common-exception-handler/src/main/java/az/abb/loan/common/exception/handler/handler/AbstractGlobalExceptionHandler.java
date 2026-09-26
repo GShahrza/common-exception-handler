@@ -12,6 +12,7 @@ import jakarta.validation.ConstraintViolationException;
 import java.net.URI;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -19,6 +20,7 @@ import org.springframework.beans.TypeMismatchException;
 import org.springframework.context.MessageSource;
 import org.springframework.context.i18n.LocaleContextHolder;
 import org.springframework.core.annotation.AnnotatedElementUtils;
+import org.springframework.util.ClassUtils;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -44,6 +46,9 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 public abstract class AbstractGlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final String ACCEPT_LANGUAGE = "Accept-Language";
+    private static final URI BLANK_TYPE = URI.create("about:blank");
+    private static final boolean MDC_PRESENT = ClassUtils.isPresent("org.slf4j.MDC",
+            AbstractGlobalExceptionHandler.class.getClassLoader());
 
     protected final MessageSource messageSource;
     protected final ErrorProperties errorProperties;
@@ -71,7 +76,9 @@ public abstract class AbstractGlobalExceptionHandler extends ResponseEntityExcep
         } else if (logger.isDebugEnabled()) {
             logger.debug("Request " + request.getRequestURI() + " rejected: " + ex.getMessage());
         }
-        return createProblemDetail(ex.getErrorCode(), ex.getStatus(), ex.getArgs(), ex.getDetail(), request);
+        ProblemDetail pd = createProblemDetail(ex.getErrorCode(), ex.getStatus(), ex.getArgs(), ex.getDetail(), request);
+        ex.getProperties().forEach(pd::setProperty);
+        return pd;
     }
 
     @ExceptionHandler(ConstraintViolationException.class)
@@ -94,11 +101,12 @@ public abstract class AbstractGlobalExceptionHandler extends ResponseEntityExcep
             }
             return createProblemDetail(errorCodeForStatus(annotated), annotated, null, null, request);
         }
-        if (isSecurityException(ex, "AccessDeniedException")) {
-            return createProblemDetail(CommonErrorCode.ACCESS_DENIED, HttpStatus.FORBIDDEN, null, null, request);
-        }
-        if (isSecurityException(ex, "AuthenticationException")) {
-            return createProblemDetail(CommonErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED, null, null, request);
+        ErrorCode known = knownErrorCode(ex);
+        if (known != null) {
+            if (logger.isWarnEnabled()) {
+                logger.warn("Request " + request.getRequestURI() + " failed with " + known + ": " + ex);
+            }
+            return createProblemDetail(known, known.httpStatus(), null, null, request);
         }
         logger.error("Unexpected error for request " + request.getRequestURI(), ex);
         return createProblemDetail(CommonErrorCode.INTERNAL_ERROR, HttpStatus.INTERNAL_SERVER_ERROR,
@@ -114,6 +122,9 @@ public abstract class AbstractGlobalExceptionHandler extends ResponseEntityExcep
             return super.handleExceptionInternal(ex, body, headers, statusCode, request);
         }
         HttpServletRequest servletRequest = servletWebRequest.getRequest();
+        if (statusCode.is5xxServerError()) {
+            logger.error("Request " + servletRequest.getRequestURI() + " failed", ex);
+        }
         ProblemDetail pd = createProblemDetail(errorCodeFor(ex, statusCode), statusCode, argsFor(ex), null,
                 servletRequest);
         List<FieldErrorResponse> fieldErrors = fieldErrorsFor(ex, resolveLocale(servletRequest));
@@ -181,11 +192,13 @@ public abstract class AbstractGlobalExceptionHandler extends ResponseEntityExcep
         String detail = detailOverride != null ? detailOverride : messages.resolve(errorCode.messageKey(), args, locale);
 
         ProblemDetail pd = ProblemDetail.forStatusAndDetail(status, detail);
+        // Spring Framework 7 no longer defaults "type" to about:blank; keep it in the payload like 1.x did
+        pd.setType(BLANK_TYPE);
         pd.setTitle(title);
         pd.setInstance(resolveInstance(request));
         pd.setProperty("key", errorProperties.getServiceKey() + errorCode.code());
         pd.setProperty("path", request.getRequestURI());
-        pd.setProperty("timestamp", Instant.now(clock));
+        pd.setProperty("timestamp", Instant.now(clock).truncatedTo(ChronoUnit.MILLIS));
         return pd;
     }
 
@@ -202,7 +215,9 @@ public abstract class AbstractGlobalExceptionHandler extends ResponseEntityExcep
                 request.getHeader(TraceHeaders.TRACEPARENT),
                 request.getHeader(TraceHeaders.X_B3_TRACE_ID),
                 request.getHeader(TraceHeaders.X_TRACE_ID),
-                request.getHeader(TraceHeaders.X_B3_SPAN_ID)
+                request.getHeader(TraceHeaders.X_B3_SPAN_ID),
+                // Micrometer Tracing puts the current trace id into the logging MDC
+                MDC_PRESENT ? org.slf4j.MDC.get("traceId") : null
         );
         try {
             return traceId != null ? URI.create("trace:" + traceId.strip()) : URI.create(request.getRequestURI());
@@ -226,10 +241,35 @@ public abstract class AbstractGlobalExceptionHandler extends ResponseEntityExcep
         return rs != null ? rs.code() : null;
     }
 
-    /** Detects Spring Security exceptions without a compile-time dependency on Spring Security. */
-    private static boolean isSecurityException(Exception ex, String simpleName) {
+    /**
+     * Maps well-known exceptions of optional libraries (Spring Data/TX, JPA, Spring Security) by class name,
+     * so the library has no compile-time dependency on them. Returns null for anything else.
+     * The response never contains the exception message (it may include SQL or data).
+     */
+    protected ErrorCode knownErrorCode(Exception ex) {
+        if (isA(ex, "org.springframework.dao.DataIntegrityViolationException")) {
+            return CommonErrorCode.DATA_INTEGRITY_VIOLATION;
+        }
+        if (isA(ex, "org.springframework.dao.OptimisticLockingFailureException")
+                || isA(ex, "jakarta.persistence.OptimisticLockException")) {
+            return CommonErrorCode.OPTIMISTIC_LOCK;
+        }
+        if (isA(ex, "org.springframework.dao.PessimisticLockingFailureException")
+                || isA(ex, "jakarta.persistence.PessimisticLockException")) {
+            return CommonErrorCode.PESSIMISTIC_LOCK;
+        }
+        if (isA(ex, "org.springframework.security.access.AccessDeniedException")) {
+            return CommonErrorCode.ACCESS_DENIED;
+        }
+        if (isA(ex, "org.springframework.security.core.AuthenticationException")) {
+            return CommonErrorCode.UNAUTHORIZED;
+        }
+        return null;
+    }
+
+    private static boolean isA(Throwable ex, String className) {
         for (Class<?> c = ex.getClass(); c != null; c = c.getSuperclass()) {
-            if (c.getName().startsWith("org.springframework.security.") && c.getSimpleName().equals(simpleName)) {
+            if (c.getName().equals(className)) {
                 return true;
             }
         }

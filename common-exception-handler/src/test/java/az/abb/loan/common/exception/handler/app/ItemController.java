@@ -4,6 +4,8 @@ import az.abb.loan.common.exception.handler.error.CommonErrorCode;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -29,6 +31,26 @@ public class ItemController {
     @PostMapping(value = "/items", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ItemRequest create(@Valid @RequestBody ItemRequest request) {
         return request;
+    }
+
+    @GetMapping("/items/duplicate")
+    public String duplicate() {
+        throw new DataIntegrityViolationException("duplicate key value violates unique constraint \"items_pkey\"");
+    }
+
+    @GetMapping("/items/concurrent")
+    public String concurrent() {
+        throw new OptimisticLockingFailureException("Row was updated by another transaction");
+    }
+
+    @GetMapping("/items/limit")
+    public String limit() {
+        throw CommonErrorCode.BAD_REQUEST.exception().withProperty("maxAmount", 5000);
+    }
+
+    @GetMapping("/items/traced")
+    public String traced() {
+        throw CommonErrorCode.RESOURCE_NOT_FOUND.exception();
     }
 
     @GetMapping("/search")

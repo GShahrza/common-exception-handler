@@ -46,6 +46,7 @@ class ClientErrorHandlingTest {
         assertThat(ex.getStatus()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(ex.getDetail()).isEqualTo("Loan 42 not found");
         assertThat(ex.getErrorCode()).isEqualTo(CommonErrorCode.CLIENT_ERROR);
+        assertThat(ex.getProperties()).containsEntry("downstreamKey", "LOAN3001");
     }
 
     @Test
@@ -74,6 +75,7 @@ class ClientErrorHandlingTest {
                 .isInstanceOfSatisfying(BaseException.class, ex -> {
                     assertThat(ex.getStatus()).isEqualTo(HttpStatus.NOT_FOUND);
                     assertThat(ex.getDetail()).isEqualTo("Loan 42 not found");
+                    assertThat(ex.getProperties()).containsEntry("downstreamKey", "LOAN3001");
                 });
     }
 }

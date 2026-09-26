@@ -30,6 +30,7 @@ class GlobalExceptionHandlerIntegrationTest {
         mvc.perform(get("/does-not-exist"))
                 .andExpect(status().isNotFound())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.type").value("about:blank"))
                 .andExpect(jsonPath("$.key").value("TEST3001"))
                 .andExpect(jsonPath("$.path").value("/does-not-exist"));
     }
@@ -113,6 +114,38 @@ class GlobalExceptionHandlerIntegrationTest {
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.key").value("TEST9999"))
                 .andExpect(content().string(not(containsString("secret"))));
+    }
+
+    @Test
+    void databaseExceptionsGetTheirOwnCodesWithoutLeakingSql() throws Exception {
+        mvc.perform(get("/items/duplicate"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.key").value("TEST2001"))
+                .andExpect(content().string(not(containsString("items_pkey"))));
+
+        mvc.perform(get("/items/concurrent"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.key").value("TEST2002"));
+    }
+
+    @Test
+    void customPropertiesAreAddedToResponse() throws Exception {
+        mvc.perform(get("/items/limit"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.maxAmount").value(5000));
+    }
+
+    @Test
+    void timestampHasMillisecondPrecision() throws Exception {
+        mvc.perform(get("/items/7"))
+                .andExpect(jsonPath("$.timestamp").value(org.hamcrest.Matchers.matchesPattern(
+                        "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,3})?Z")));
+    }
+
+    @Test
+    void micrometerTraceIdFromMdcIsUsedWithoutHeaders() throws Exception {
+        mvc.perform(get("/items/traced"))
+                .andExpect(jsonPath("$.instance").value("trace:4bf92f3577b34da6"));
     }
 
     @Test

@@ -20,7 +20,8 @@ repositories {
 
 dependencyManagement {
     imports {
-        mavenBom 'org.springframework.boot:spring-boot-dependencies:4.1.1'
+        // Compile against the lowest supported Boot version; CI also tests newer ones with -PbootVersion=...
+        mavenBom "org.springframework.boot:spring-boot-dependencies:${findProperty('bootVersion') ?: '4.0.8'}"
     }
 }
 
@@ -35,6 +36,7 @@ dependencies {
     compileOnly 'org.springframework:spring-webmvc'
     compileOnly 'jakarta.servlet:jakarta.servlet-api'
     compileOnly 'jakarta.validation:jakarta.validation-api'
+    compileOnly 'org.slf4j:slf4j-api'
 
     // Optional integrations: only active when present on the consumer's classpath
     compileOnly 'tools.jackson.core:jackson-databind'
@@ -45,6 +47,7 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
     testImplementation 'io.github.openfeign:feign-core:13.6'
+    testImplementation 'org.springframework:spring-tx'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 

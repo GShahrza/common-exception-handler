@@ -1,6 +1,7 @@
 package az.abb.loan.common.exception.handler.decoder;
 
 import az.abb.loan.common.exception.handler.error.CommonErrorCode;
+import az.abb.loan.common.exception.handler.exception.BaseException;
 import az.abb.loan.common.exception.handler.support.ProblemDetailParser;
 import feign.Response;
 import feign.codec.ErrorDecoder;
@@ -34,13 +35,18 @@ public class CommonFeignErrorDecoder implements ErrorDecoder {
         if (status == null) {
             status = HttpStatus.BAD_GATEWAY;
         }
-        String message = ProblemDetailParser.extractMessage(objectMapper, readBody(response));
+        ProblemDetailParser.DownstreamError error = ProblemDetailParser.parse(objectMapper, readBody(response));
+        String message = error.message();
         if (message == null) {
             message = response.reason() != null
                     ? response.reason()
                     : "Downstream call " + methodKey + " failed with status " + response.status();
         }
-        return CommonErrorCode.CLIENT_ERROR.exceptionWithMessage(status, message);
+        BaseException ex = CommonErrorCode.CLIENT_ERROR.exceptionWithMessage(status, message);
+        if (error.key() != null) {
+            ex.withProperty("downstreamKey", error.key());
+        }
+        return ex;
     }
 
     private static byte[] readBody(Response response) {
