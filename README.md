@@ -18,6 +18,7 @@ A small, reusable library for centralized exception handling across Spring Boot 
 - Service-to-service errors (Feign / RestClient)
 - Configuration reference
 - Error codes
+- Migrating from 2.0.0
 - Migrating from 1.x (Spring Boot 3)
 - Releasing a new version
 - FAQ / Troubleshooting
@@ -34,7 +35,7 @@ A small, reusable library for centralized exception handling across Spring Boot 
 - **Exceptions:** `ErrorCode#exception(...)` creates a `BaseException`; the status defaults to the code's status (e.g. `RESOURCE_NOT_FOUND` → 404).
 - **AbstractGlobalExceptionHandler:** extends Spring's `ResponseEntityExceptionHandler`, so every Spring MVC exception gets its correct status, and converts everything into the common `ProblemDetail` format.
 - **Localization:** texts are taken from your service's `MessageSource` first and fall back to the translations bundled with the library. You only define keys you want to override.
-- **Service key:** every payload has `key` = `service-key + code` (e.g. `ABLIMS1000`).
+- **Service key:** every payload has `key` = `service-key + code` (e.g. `ORDERS1000`).
 - **Logging:** unexpected errors and 5xx errors are logged with stack trace; the response never exposes internal exception messages.
 - **Database and security errors:** `DataIntegrityViolationException` → 409 (`2001`), optimistic lock → 409 (`2002`), pessimistic lock → 423 (`2003`), Spring Security access denied → 403, authentication → 401. Detected by class name, so no extra dependency is required. SQL details are logged, never returned.
 - **Auto-configuration:** `ErrorProperties` and the Feign error decoder are registered automatically.
@@ -69,7 +70,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'az.abb.loan:common-exception-handling:2.0.0'
+    implementation 'io.github.gshahrza:common-exception-handling:3.0.0'
 }
 ```
 
@@ -77,10 +78,10 @@ dependencies {
 ```yaml
 common:
   error:
-    service-key: ABLIMS
+    service-key: ORDERS
 ```
 
-`ABLIMS` is an example; use a key specific to your service.
+`ORDERS` is an example; use a key specific to your service.
 
 ### 3) Extend the global exception handler
 ```java
@@ -150,9 +151,9 @@ Validation error:
   "title": "Validation Failed",
   "status": 400,
   "detail": "Validation failed for one or more fields",
-  "instance": "/insurance-ms/test/send",
-  "key": "ABLIMS1000",
-  "path": "/insurance-ms/test/send",
+  "instance": "/order-ms/test/send",
+  "key": "ORDERS1000",
+  "path": "/order-ms/test/send",
   "timestamp": "2026-01-11T07:42:47.889628Z",
   "fieldErrors": [
     { "field": "amount", "message": "must be greater than or equal to 100" }
@@ -160,7 +161,7 @@ Validation error:
 }
 ```
 
-Unknown URL (`GET /insurance-ms/nope`):
+Unknown URL (`GET /order-ms/nope`):
 
 ```json
 {
@@ -168,9 +169,9 @@ Unknown URL (`GET /insurance-ms/nope`):
   "title": "Not Found",
   "status": 404,
   "detail": "Requested resource not found",
-  "instance": "/insurance-ms/nope",
-  "key": "ABLIMS3001",
-  "path": "/insurance-ms/nope",
+  "instance": "/order-ms/nope",
+  "key": "ORDERS3001",
+  "path": "/order-ms/nope",
   "timestamp": "2026-01-11T07:50:00.123Z"
 }
 ```
@@ -227,9 +228,16 @@ RestClient loanClient(RestClient.Builder builder, JsonMapper jsonMapper) {
 | `ACCESS_DENIED` | 4003 | 403 |
 | `INTERNAL_ERROR` | 9999 | 500 |
 
+## Migrating from 2.0.0
+
+3.0.0 only renames the library; behaviour is identical to 2.0.0.
+
+- The Maven coordinates are now `io.github.gshahrza:common-exception-handling:3.0.0`.
+- All classes moved to the `io.github.gshahrza.exceptionhandler` package (sub-packages `config`, `error`, `exception`, `handler`, `decoder`, `client`, `support`, `model` are unchanged); updating the imports is enough.
+
 ## Migrating from 1.x (Spring Boot 3)
 
-- The library is consumed as a versioned dependency (`az.abb.loan:common-exception-handling`) instead of copying the module into `libs/`.
+- The library is consumed as a versioned dependency (`io.github.gshahrza:common-exception-handling`) instead of copying the module into `libs/`.
 - Requires Spring Boot 4.0+ / Spring Framework 7 and Jackson 3 (`tools.jackson`). Tested with Boot 4.0.8 and 4.1.1.
 - `CommonFeignErrorDecoder` now takes a Jackson 3 `tools.jackson.databind.ObjectMapper` (or use the no-arg constructor). It is registered automatically; remove manual registration unless you need a custom one.
 - `CommonErrorCode.exception()` now uses the code's own status (e.g. `RESOURCE_NOT_FOUND` → 404 instead of 400). Pass a status explicitly to keep the old behaviour.
@@ -239,10 +247,10 @@ RestClient loanClient(RestClient.Builder builder, JsonMapper jsonMapper) {
 
 ## Releasing a new version
 1. Merge the changes into `main` (CI builds and tests against Spring Boot 4.0 and 4.1).
-2. Either push a tag with the version (`git tag v2.0.1 && git push origin v2.0.1`), or open **Actions → release → Run workflow** on `main` and enter `2.0.1`.
-3. The `release` workflow builds, tests and publishes `az.abb.loan:common-exception-handling:2.0.1`. On manual runs it also creates the `v2.0.1` tag after a successful publish.
+2. Either push a tag with the version (`git tag v3.0.1 && git push origin v3.0.1`), or open **Actions → release → Run workflow** on `main` and enter `3.0.1`.
+3. The `release` workflow builds, tests and publishes `io.github.gshahrza:common-exception-handling:3.0.1`. On manual runs it also creates the `v3.0.1` tag after a successful publish.
 
-Local builds use version `2.0.0-SNAPSHOT`; `./gradlew publishToMavenLocal -PreleaseVersion=2.0.1` installs a version into `~/.m2` for local testing. To publish to another Maven repository (e.g. Nexus), pass `-PpublishUrl=... -PpublishUser=... -PpublishPassword=...`.
+Local builds use version `3.0.0-SNAPSHOT`; `./gradlew publishToMavenLocal -PreleaseVersion=3.0.1` installs a version into `~/.m2` for local testing. To publish to another Maven repository (e.g. Nexus), pass `-PpublishUrl=... -PpublishUser=... -PpublishPassword=...`.
 
 ## FAQ / Troubleshooting
 - **Title/message are not translated:** check `spring.messages.basename` and that the files are UTF-8. Without `Accept-Language`, `common.error.default-locale` is used.
