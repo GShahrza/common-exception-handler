@@ -19,6 +19,7 @@ A small, reusable library for centralized exception handling across Spring Boot 
 - Configuration reference
 - Error codes
 - Migrating from 1.x (Spring Boot 3)
+- Releasing a new version
 - FAQ / Troubleshooting
 
 ---
@@ -47,16 +48,28 @@ A small, reusable library for centralized exception handling across Spring Boot 
 ## Integration Guide
 
 ### 1) Add the library
-Place this module under your root `libs/` folder and add a project dependency from your microservice:
+The library is published to GitHub Packages. GitHub Packages requires authentication even for reading: create a personal access token with the `read:packages` scope and put it into `~/.gradle/gradle.properties` (on CI use the pipeline's secret store):
+
+```properties
+gpr.user=your-github-username
+gpr.token=ghp_xxx
+```
 
 ```gradle
-// settings.gradle
-include ':common-exception-handler'
-project(':common-exception-handler').projectDir = file('libs/common-exception-handler')
-
 // build.gradle of your microservice
+repositories {
+    mavenCentral()
+    maven {
+        url = uri('https://maven.pkg.github.com/GShahrza/common-exception-handler')
+        credentials {
+            username = findProperty('gpr.user') ?: System.getenv('GITHUB_ACTOR')
+            password = findProperty('gpr.token') ?: System.getenv('GITHUB_TOKEN')
+        }
+    }
+}
+
 dependencies {
-    implementation project(':common-exception-handler')
+    implementation 'az.abb.loan:common-exception-handling:2.0.0'
 }
 ```
 
@@ -216,12 +229,20 @@ RestClient loanClient(RestClient.Builder builder, JsonMapper jsonMapper) {
 
 ## Migrating from 1.x (Spring Boot 3)
 
+- The library is consumed as a versioned dependency (`az.abb.loan:common-exception-handling`) instead of copying the module into `libs/`.
 - Requires Spring Boot 4.0+ / Spring Framework 7 and Jackson 3 (`tools.jackson`). Tested with Boot 4.0.8 and 4.1.1.
 - `CommonFeignErrorDecoder` now takes a Jackson 3 `tools.jackson.databind.ObjectMapper` (or use the no-arg constructor). It is registered automatically; remove manual registration unless you need a custom one.
 - `CommonErrorCode.exception()` now uses the code's own status (e.g. `RESOURCE_NOT_FOUND` → 404 instead of 400). Pass a status explicitly to keep the old behaviour.
 - `CLIENT_ERROR` now uses i18n keys `error.client.title` / `error.client.message`.
 - The handler methods `handleValidationException`, `handleJsonParse`, `handleRequestParamError` and `handleMethodNotSupported` were removed: these exceptions are now handled through `ResponseEntityExceptionHandler`. If your subclass declares its own `@ExceptionHandler` for one of Spring MVC's standard exceptions, override the matching `handle...` method of `ResponseEntityExceptionHandler` instead, otherwise Spring reports an ambiguous handler at startup.
 - Bundled translations moved from `i18n/messages*.properties` to `i18n/common-errors*.properties` so they no longer clash with the service's own files. The `MessageConfig` class from 1.x is no longer needed.
+
+## Releasing a new version
+1. Merge the changes into `main` (CI builds and tests against Spring Boot 4.0 and 4.1).
+2. Create and push a tag with the version: `git tag v2.0.1 && git push origin v2.0.1`.
+3. The `release` workflow builds, tests and publishes `az.abb.loan:common-exception-handling:2.0.1`.
+
+Local builds use version `2.0.0-SNAPSHOT`; `./gradlew publishToMavenLocal -PreleaseVersion=2.0.1` installs a version into `~/.m2` for local testing. To publish to another Maven repository (e.g. Nexus), pass `-PpublishUrl=... -PpublishUser=... -PpublishPassword=...`.
 
 ## FAQ / Troubleshooting
 - **Title/message are not translated:** check `spring.messages.basename` and that the files are UTF-8. Without `Accept-Language`, `common.error.default-locale` is used.

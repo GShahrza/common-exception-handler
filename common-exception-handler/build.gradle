@@ -1,10 +1,12 @@
 plugins {
     id 'java-library'
+    id 'maven-publish'
     id 'io.spring.dependency-management' version '1.1.7'
 }
 
 group = 'az.abb.loan'
-version = '2.0.0'
+// Release builds pass -PreleaseVersion=2.0.0 (done by the release workflow from the git tag)
+version = findProperty('releaseVersion') ?: '2.0.0-SNAPSHOT'
 description = 'Common RFC 9457 (Problem Details) exception handling for Spring Boot services'
 
 java {
@@ -22,6 +24,10 @@ dependencyManagement {
     imports {
         // Compile against the lowest supported Boot version; CI also tests newer ones with -PbootVersion=...
         mavenBom "org.springframework.boot:spring-boot-dependencies:${findProperty('bootVersion') ?: '4.0.8'}"
+    }
+    // The BOM is only for building this library; do not push it into consumers' POMs
+    generatedPomCustomization {
+        enabled = false
     }
 }
 
@@ -63,4 +69,38 @@ tasks.named('test') {
 
 base {
     archivesName = 'common-exception-handling'
+}
+
+publishing {
+    publications {
+        library(MavenPublication) {
+            from components.java
+            artifactId = 'common-exception-handling'
+            // Write resolved versions into the POM / Gradle module metadata; the dependency-management
+            // plugin alone would publish dependencies without versions
+            versionMapping {
+                usage('java-api') {
+                    fromResolutionOf('runtimeClasspath')
+                }
+                usage('java-runtime') {
+                    fromResolutionResult()
+                }
+            }
+            pom {
+                name = 'Common Exception Handler'
+                description = project.description
+                url = 'https://github.com/GShahrza/common-exception-handler'
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = 'GitHubPackages'
+            url = uri(findProperty('publishUrl') ?: 'https://maven.pkg.github.com/GShahrza/common-exception-handler')
+            credentials {
+                username = findProperty('publishUser') ?: System.getenv('GITHUB_ACTOR')
+                password = findProperty('publishPassword') ?: System.getenv('GITHUB_TOKEN')
+            }
+        }
+    }
 }
